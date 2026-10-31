@@ -25,6 +25,7 @@ function translate(msg = '') {
   if (/row-level security/i.test(msg)) return 'No tiene permiso para esta acción';
   if (/duplicate key/i.test(msg)) return 'El registro ya existe';
   if (/Failed to fetch/i.test(msg)) return 'Sin conexión con el servidor';
+  if (/Could not find the (table|function)/i.test(msg)) return 'La base de datos está desactualizada: ejecute de nuevo supabase/schema.sql en el SQL Editor de Supabase';
   return msg;
 }
 
