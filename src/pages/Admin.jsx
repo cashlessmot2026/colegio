@@ -12,6 +12,8 @@ import {
 import { EPS } from '../lib/eps.js';
 import { Academic, AdminDocuments, Enrollments, Security, AdminEvents, Settings } from './AdminMore.jsx';
 import { AdminAnnouncements } from '../components/Announcements.jsx';
+import NfcAssign from '../components/NfcAssign.jsx';
+import { prettyUid } from '../lib/nfc.js';
 
 const NAV = [
   { key: 'analitica', label: 'Analítica', icon: '📈' },
@@ -390,6 +392,7 @@ function Students() {
   const [search, setSearch] = useState('');
   const [edit, setEdit] = useState(null);
   const [pw, setPw] = useState(null);
+  const [nfc, setNfc] = useState(null);
   const st = useAsync(() => q(supabase.from('students').select('*, profile:profiles!students_id_fkey(full_name, username), parent:profiles!students_parent_id_fkey(id, full_name, username, phone, email, doc_id)')), []);
   const allParents = useAsync(() => q(supabase.from('profiles').select('id, full_name, username').eq('role', 'parent').order('full_name')), []);
   const del = async (s) => { if (!window.confirm(`¿Eliminar a ${s.profile.full_name}?`)) return; try { await rpc('cg_admin_delete_user', { uid: s.id }); st.reload(); } catch (e) { toast(e); } };
@@ -406,14 +409,15 @@ function Students() {
           .sort((a, b) => a.profile.full_name.localeCompare(b.profile.full_name));
         return !rows.length ? <Empty icon="🎒">Sin estudiantes</Empty> : (
           <div className="table-wrap"><table>
-            <thead><tr><th>Estudiante</th><th>Documento</th><th>Grupo</th><th>Acudiente</th><th>EPS</th><th>Usuario</th><th></th></tr></thead>
+            <thead><tr><th>Estudiante</th><th>Documento</th><th>Grupo</th><th>Acudiente</th><th>EPS</th><th>Pulsera</th><th>Usuario</th><th></th></tr></thead>
             <tbody>{rows.map((s) => (
               <tr key={s.id}>
                 <td><div className="row" style={{ flexWrap: 'nowrap' }}><Avatar name={s.profile.full_name} size={30} />{s.profile.full_name}</div></td>
                 <td>{s.doc_id}</td><td>{groups.find((g) => g.id === s.group_id)?.name || '—'}</td>
-                <td>{s.parent?.full_name || '—'}<div className="small muted">{s.parent?.username}</div></td><td>{s.eps || '—'}</td><td>{s.profile.username}</td>
+                <td>{s.parent?.full_name || '—'}<div className="small muted">{s.parent?.username}</div></td><td>{s.eps || '—'}</td><td>{s.nfc_uid ? <span className="badge ok" title={prettyUid(s.nfc_uid)}>📿 Asignada</span> : <span className="badge">—</span>}</td><td>{s.profile.username}</td>
                 <td><div className="row" style={{ flexWrap: 'nowrap' }}>
                   <GlowButton size="sm" variant="ghost" onClick={() => setEdit(s)}>Editar</GlowButton>
+                  <GlowButton size="sm" variant={s.nfc_uid ? 'ok' : ''} onClick={() => setNfc(s)} title="Pulsera NFC">📿</GlowButton>
                   <GlowButton size="sm" variant="warn" onClick={() => setPw({ id: s.id, full_name: s.profile.full_name })}>🔑</GlowButton>
                   {s.parent && <GlowButton size="sm" variant="warn" onClick={() => setPw(s.parent)} title="Contraseña del acudiente">🔑👤</GlowButton>}
                   <GlowButton size="sm" variant="bad" onClick={() => del(s)}>✕</GlowButton>
@@ -425,6 +429,7 @@ function Students() {
       }}</Async>
       <StudentForm student={edit} parents={allParents.data || []} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); st.reload(); }} />
       <ResetPassword user={pw} onClose={() => setPw(null)} />
+      <NfcAssign student={nfc} onClose={() => setNfc(null)} onSaved={() => { setNfc(null); st.reload(); }} />
     </>
   );
 }

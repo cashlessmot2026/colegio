@@ -4,6 +4,8 @@ import { Html5Qrcode } from 'html5-qrcode';
 import Shell from '../components/Shell.jsx';
 import Chat from '../components/Chat.jsx';
 import { AnnouncementsFeed } from '../components/Announcements.jsx';
+import { NfcPulse } from '../components/NfcAssign.jsx';
+import { listenNfc, nfcSupported, prettyUid } from '../lib/nfc.js';
 import { supabase, q, rpc } from '../lib/supabase.js';
 import { todayISO, fmtDateTime } from '../lib/dates.js';
 import { Card, GlowButton, Empty, Verdict, useToast, useAsync, Async, Stagger, StaggerItem } from '../components/ui.jsx';
@@ -33,15 +35,17 @@ function Verify() {
   const [result, setResult] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [nfcOn, setNfcOn] = useState(false);
   const scanner = useRef(null);
+  const nfcStop = useRef(null);
 
-  const check = async (value) => {
+  const check = async (value, via) => {
     const v = (value ?? doc).trim();
     if (!v) return;
     setBusy(true);
     try {
       const [r] = await rpc('cg_guard_check', { p_doc: v });
-      setResult(r);
+      setResult(r ? { ...r, via: via || (/^[0-9A-F:]{8,}$/i.test(v) && /[A-F:]/i.test(v) ? 'nfc' : 'doc') } : r);
       if (navigator.vibrate) navigator.vibrate(r?.authorized ? 80 : [200, 80, 200]);
     } catch (e) { toast(e); } finally { setBusy(false); }
   };
@@ -60,7 +64,16 @@ function Verify() {
       });
     } catch { toast(new Error('No se pudo abrir la cámara. Digite el documento manualmente.')); setScanning(false); }
   };
-  useEffect(() => () => { stopScan(); }, []); // eslint-disable-line
+  // Pulsera NFC: queda escuchando; cada pulsera que se acerque se verifica al instante
+  const stopNfc = () => { nfcStop.current?.(); nfcStop.current = null; setNfcOn(false); };
+  const startNfc = async () => {
+    await stopScan(); setResult(null);
+    try {
+      nfcStop.current = await listenNfc((uid) => { setDoc(prettyUid(uid)); check(uid, 'nfc'); }, (e) => toast(e));
+      setNfcOn(true);
+    } catch (e) { toast(e); }
+  };
+  useEffect(() => () => { stopScan(); stopNfc(); }, []); // eslint-disable-line
 
   const registerExit = async () => {
     try { await rpc('cg_guard_register_exit', { p_id: result.permission_id }); toast('Salida registrada. Se notificó al acudiente y al director de grupo.'); setResult(null); setDoc(''); } catch (e) { toast(e); }
@@ -73,10 +86,20 @@ function Verify() {
           <AnimatePresence>
             {scanning && <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}><div id="qr-reader" /></motion.div>}
           </AnimatePresence>
-          {scanning ? <GlowButton variant="bad" onClick={stopScan}>Detener cámara</GlowButton> : <GlowButton variant="solid" size="lg" onClick={startScan}>📷 Escanear QR del carné</GlowButton>}
+          <AnimatePresence>
+            {nfcOn && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                <NfcPulse active label="Acerque la pulsera del estudiante a la parte trasera del teléfono. Puede verificar varias seguidas." />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {nfcOn ? <GlowButton variant="bad" onClick={stopNfc}>Detener lector NFC</GlowButton>
+            : <GlowButton variant="solid ok" size="lg" onClick={startNfc} disabled={scanning}>📿 Escanear pulsera NFC</GlowButton>}
+          {!nfcSupported() && <p className="small muted" style={{ textAlign: 'center' }}>NFC disponible en Chrome para Android. En computador use un lector NFC USB sobre el campo de abajo.</p>}
+          {scanning ? <GlowButton variant="bad" onClick={stopScan}>Detener cámara</GlowButton> : <GlowButton size="lg" onClick={() => { stopNfc(); startScan(); }}>📷 Escanear QR del carné</GlowButton>}
           <div className="row muted small" style={{ justifyContent: 'center' }}>— o —</div>
           <form className="row" onSubmit={(e) => { e.preventDefault(); check(); }}>
-            <input inputMode="numeric" placeholder="Número de documento del estudiante" value={doc} onChange={(e) => setDoc(e.target.value)} style={{ flex: 1, width: 'auto', fontSize: '1.1rem' }} />
+            <input placeholder="Documento del estudiante o código de pulsera" value={doc} onChange={(e) => setDoc(e.target.value)} style={{ flex: 1, width: 'auto', fontSize: '1.1rem' }} />
             <GlowButton type="submit" disabled={busy}>{busy ? '…' : 'Verificar'}</GlowButton>
           </form>
         </div>
@@ -91,6 +114,7 @@ function Verify() {
                 <Verdict ok={result.authorized} title={result.authorized ? 'AUTORIZADO' : 'NO AUTORIZADO'}>
                   {result.full_name && <h2>{result.full_name}</h2>}
                   {result.group_name && <p className="muted">Grupo {result.group_name}</p>}
+                  {result.via === 'nfc' && result.student_id && <span className="badge info" style={{ marginTop: 6 }}>📿 Identificado con pulsera NFC</span>}
                   <p style={{ marginTop: 8 }}>{result.reason}</p>
                   {result.authorized && (
                     <div className="col small" style={{ marginTop: 10, gap: 4 }}>

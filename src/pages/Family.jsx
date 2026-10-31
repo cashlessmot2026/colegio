@@ -506,7 +506,8 @@ function StudentProfile({ child, onSaved }) {
       </Card>
       <div className="col">
         <Card title="Datos del estudiante">
-          <div className="row"><Avatar name={child.profile?.full_name} size={56} /><div><h3>{child.profile?.full_name}</h3><div className="small muted">Usuario: {child.profile?.username} · Doc: {child.doc_id}</div></div></div>
+          <div className="row"><Avatar name={child.profile?.full_name} size={56} /><div><h3>{child.profile?.full_name}</h3><div className="small muted">Usuario: {child.profile?.username} · Doc: {child.doc_id}</div>
+            {child.nfc_uid ? <span className="badge ok" style={{ marginTop: 6 }}>📿 Pulsera NFC asignada</span> : <span className="badge" style={{ marginTop: 6 }}>Sin pulsera NFC</span>}</div></div>
         </Card>
         <Card title="🔑 Contraseña del estudiante">
           <p className="small muted" style={{ marginBottom: 10 }}>Como acudiente, usted asigna y modifica la contraseña con la que su hijo(a) ingresa a la app.</p>

@@ -272,3 +272,9 @@ td input { min-width: 70px; padding: 6px 8px; }
 .ann-dots button { width: 8px; height: 8px; border-radius: 99px; border: 0; background: rgba(255, 255, 255, .45); cursor: pointer; padding: 0; transition: width .3s; }
 .ann-dots button.on { width: 22px; background: #fff; }
 a.gbtn { text-decoration: none; }
+
+/* ---------- Pulsera NFC ---------- */
+.nfc-pulse { position: relative; display: grid; place-items: center; padding: 34px 0 10px; min-height: 170px; }
+.nfc-ring { position: absolute; top: 34px; width: 110px; height: 110px; border-radius: 50%; border: 3px solid var(--b); box-shadow: 0 0 22px var(--b); pointer-events: none; }
+.nfc-core { width: 110px; height: 110px; border-radius: 50%; display: grid; place-items: center; font-size: 46px; background: radial-gradient(circle, rgba(0, 229, 255, .25), rgba(124, 92, 255, .18)); border: 2px solid rgba(0, 229, 255, .6); box-shadow: 0 0 30px rgba(0, 229, 255, .45); position: relative; z-index: 1; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; letter-spacing: .05em; }

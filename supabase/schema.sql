@@ -73,6 +73,25 @@ create table if not exists public.students (
   guardian2 jsonb default '{}'::jsonb   -- {name, relation, doc, phone, email, address}
 );
 
+-- pulsera NFC: número de serie (UID) normalizado a hexadecimal en mayúsculas
+alter table public.students add column if not exists nfc_uid text;
+create unique index if not exists students_nfc_uid_key on public.students (nfc_uid) where nfc_uid is not null;
+
+create or replace function public.cg_norm_uid(x text) returns text
+language sql immutable as $$
+  select nullif(upper(regexp_replace(coalesce(x, ''), '[^0-9a-fA-F]', '', 'g')), '')
+$$;
+
+create or replace function public.cg_trg_norm_nfc() returns trigger
+language plpgsql as $$
+begin
+  new.nfc_uid := public.cg_norm_uid(new.nfc_uid);
+  return new;
+end $$;
+drop trigger if exists norm_nfc on public.students;
+create trigger norm_nfc before insert or update of nfc_uid on public.students
+  for each row execute function public.cg_trg_norm_nfc();
+
 create table if not exists public.tasks (
   id uuid primary key default gen_random_uuid(),
   subject_id uuid not null references public.subjects(id) on delete cascade,
@@ -473,7 +492,9 @@ begin
   if public.cg_my_role() not in ('guard','admin') then raise exception 'No autorizado'; end if;
   select s.id, p.full_name, g.name as gname into st
     from students s join profiles p on p.id = s.id left join groups g on g.id = s.group_id
-    where s.doc_id = trim(p_doc) or s.id::text = trim(p_doc) limit 1;
+    where s.doc_id = trim(p_doc) or s.id::text = trim(p_doc)
+       or (s.nfc_uid is not null and s.nfc_uid = public.cg_norm_uid(p_doc))
+    limit 1;
   if st.id is null then
     return query select null::uuid, null::text, null::text, false, null::uuid, 'Estudiante no encontrado'::text, null::text, null::text, null::text, null::timestamptz;
     return;
