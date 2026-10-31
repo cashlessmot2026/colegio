@@ -66,7 +66,7 @@ export function DataProvider({ children }) {
       q(supabase.from('rooms').select('*').order('name')),
       q(supabase.from('schedule').select('*').order('day').order('start_time')),
       q(supabase.from('profiles').select('id, full_name, role, username, phone, email, doc_id').in('role', ['teacher', 'admin'])),
-      q(supabase.from('settings').select('*')),
+      q(supabase.from('cg_settings').select('*')),
     ]);
     const settings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
     const by = (arr) => Object.fromEntries(arr.map((x) => [x.id, x]));

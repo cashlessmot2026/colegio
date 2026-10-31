@@ -220,7 +220,7 @@ export function Enrollments() {
 
   const saveCfg = async (next) => {
     setCfg(next);
-    try { await q(supabase.from('settings').upsert({ key: 'enrollment', value: next })); reload(); } catch (e) { toast(e); }
+    try { await q(supabase.from('cg_settings').upsert({ key: 'enrollment', value: next })); reload(); } catch (e) { toast(e); }
   };
 
   return (
@@ -423,7 +423,7 @@ export function Settings() {
   const [f, setF] = useState(school);
   const save = async (e) => {
     e.preventDefault();
-    try { await q(supabase.from('settings').upsert({ key: 'school', value: f })); await reload(); toast('Ajustes guardados'); } catch (err) { toast(err); }
+    try { await q(supabase.from('cg_settings').upsert({ key: 'school', value: f })); await reload(); toast('Ajustes guardados'); } catch (err) { toast(err); }
   };
   return (
     <div className="grid g2">

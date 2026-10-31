@@ -22,7 +22,7 @@ create table if not exists public.profiles (
   created_at timestamptz default now()
 );
 
-create table if not exists public.settings (
+create table if not exists public.cg_settings (
   key text primary key,
   value jsonb not null
 );
@@ -547,8 +547,8 @@ end $$;
 
 create or replace function public.cg_enrollment_config() returns jsonb
 language sql stable security definer set search_path = public as $$
-  select coalesce((select value from settings where key = 'enrollment'), '{}'::jsonb)
-      || jsonb_build_object('school', coalesce((select value->>'name' from settings where key = 'school'), 'Colegio'))
+  select coalesce((select value from cg_settings where key = 'enrollment'), '{}'::jsonb)
+      || jsonb_build_object('school', coalesce((select value->>'name' from cg_settings where key = 'school'), 'Colegio'))
 $$;
 
 -- ---------------------------------------------------------------------
@@ -611,7 +611,7 @@ create trigger message_notify after insert on public.messages
 -- ---------------------------------------------------------------------
 do $$ declare t text;
 begin
-  foreach t in array array['profiles','settings','rooms','groups','subjects','schedule','students','tasks','grades',
+  foreach t in array array['profiles','cg_settings','rooms','groups','subjects','schedule','students','tasks','grades',
     'topics','attendance','events','documents','messages','notifications','exit_permissions','enrollments','class_sessions']
   loop
     execute format('alter table public.%I enable row level security', t);
@@ -621,7 +621,7 @@ end $$;
 -- borra políticas previas para poder re-ejecutar
 do $$ declare p record;
 begin
-  for p in select policyname, tablename from pg_policies where schemaname = 'public' and tablename = any(array['profiles','settings','rooms','groups','subjects','schedule','students','tasks','grades',
+  for p in select policyname, tablename from pg_policies where schemaname = 'public' and tablename = any(array['profiles','cg_settings','rooms','groups','subjects','schedule','students','tasks','grades',
     'topics','attendance','events','documents','messages','notifications','exit_permissions','enrollments','class_sessions']) loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -633,8 +633,8 @@ create policy profiles_select on public.profiles for select to authenticated usi
 );
 create policy profiles_admin on public.profiles for update to authenticated using (public.cg_is_admin()) with check (public.cg_is_admin());
 
-create policy settings_select on public.settings for select to authenticated using (true);
-create policy settings_admin on public.settings for all to authenticated using (public.cg_is_admin()) with check (public.cg_is_admin());
+create policy settings_select on public.cg_settings for select to authenticated using (true);
+create policy settings_admin on public.cg_settings for all to authenticated using (public.cg_is_admin()) with check (public.cg_is_admin());
 
 create policy rooms_select on public.rooms for select to authenticated using (true);
 create policy rooms_admin on public.rooms for all to authenticated using (public.cg_is_admin()) with check (public.cg_is_admin());
@@ -772,7 +772,7 @@ create policy colegio_delete on storage.objects for delete to authenticated
 -- ---------------------------------------------------------------------
 -- DATOS INICIALES
 -- ---------------------------------------------------------------------
-insert into public.settings (key, value) values
+insert into public.cg_settings (key, value) values
   ('grading', '{"scale":"1-5","teacher_can_choose":true}'::jsonb),
   ('school', '{"name":"Colegio","city":"Colombia","year":2026}'::jsonb),
   ('enrollment', '{"open":true,"required_docs":["Registro civil o tarjeta de identidad","Boletín o certificado del último año cursado","Paz y salvo del colegio anterior","Certificado de afiliación a EPS","Carné de vacunas (preescolar y primaria)"]}'::jsonb)

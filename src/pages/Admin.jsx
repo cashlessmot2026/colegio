@@ -155,7 +155,7 @@ function GradingSettings() {
   const toast = useToast();
   const [f, setF] = useState(grading);
   const save = async () => {
-    try { await q(supabase.from('settings').upsert({ key: 'grading', value: f })); await reload(); toast('Escala institucional guardada'); } catch (e) { toast(e); }
+    try { await q(supabase.from('cg_settings').upsert({ key: 'grading', value: f })); await reload(); toast('Escala institucional guardada'); } catch (e) { toast(e); }
   };
   return (
     <div className="col" style={{ gap: 16 }}>
