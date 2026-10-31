@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import Shell from '../components/Shell.jsx';
 import Chat from '../components/Chat.jsx';
@@ -11,12 +11,15 @@ import {
 } from '../components/ui.jsx';
 import { EPS } from '../lib/eps.js';
 import { Academic, AdminDocuments, Enrollments, Security, AdminEvents, Settings } from './AdminMore.jsx';
+import { AdminAnnouncements } from '../components/Announcements.jsx';
 
 const NAV = [
   { key: 'analitica', label: 'Analítica', icon: '📈' },
   { key: 'calificacion', label: 'Calificación', icon: '🎯' },
   { key: 'docentes', label: 'Docentes', icon: '🧑‍🏫' },
   { key: 'estudiantes', label: 'Estudiantes', icon: '🎒' },
+  { key: 'padres', label: 'Padres', icon: '👨‍👩‍👧' },
+  { key: 'comunicados', label: 'Comunicados', icon: '📢' },
   { key: 'academico', label: 'Grupos y horarios', icon: '🏫' },
   { key: 'documentos', label: 'Documentos', icon: '📘' },
   { key: 'matriculas', label: 'Matrículas', icon: '📝' },
@@ -35,6 +38,8 @@ export default function Admin() {
       {tab === 'calificacion' && <GradingSettings />}
       {tab === 'docentes' && <Teachers />}
       {tab === 'estudiantes' && <Students />}
+      {tab === 'padres' && <Parents />}
+      {tab === 'comunicados' && <AdminAnnouncements />}
       {tab === 'academico' && <Academic />}
       {tab === 'documentos' && <AdminDocuments />}
       {tab === 'matriculas' && <Enrollments />}
@@ -184,46 +189,179 @@ function GradingSettings() {
 function Teachers() {
   const { teachers, subjects, groups, reload } = useData();
   const toast = useToast();
-  const [open, setOpen] = useState(false);
+  const [edit, setEdit] = useState(null);
   const [pw, setPw] = useState(null);
-  const create = async (e) => {
-    e.preventDefault();
-    const f = Object.fromEntries(new FormData(e.target));
-    try {
-      await rpc('cg_admin_create_user', { p_username: f.username, p_password: f.password, p_role: 'teacher', p_full_name: f.name, p_doc: f.doc, p_phone: f.phone, p_email: f.email });
-      toast('Docente creado'); setOpen(false); reload();
-    } catch (err) { toast(err); }
-  };
   const del = async (t) => { if (!window.confirm(`¿Eliminar al docente ${t.full_name}?`)) return; try { await rpc('cg_admin_delete_user', { uid: t.id }); reload(); } catch (e) { toast(e); } };
   return (
     <>
-      <div className="row" style={{ marginBottom: 14 }}><span className="muted">{teachers.length} docentes</span><span className="spacer" /><GlowButton variant="solid" onClick={() => setOpen(true)}>＋ Crear docente</GlowButton></div>
+      <div className="row" style={{ marginBottom: 14 }}><span className="muted">{teachers.length} docentes</span><span className="spacer" /><GlowButton variant="solid" onClick={() => setEdit({ role: 'teacher' })}>＋ Crear docente</GlowButton></div>
       {!teachers.length ? <Empty icon="🧑‍🏫">Aún no hay docentes</Empty> : (
         <Stagger className="grid g3">{teachers.map((t) => (
           <StaggerItem key={t.id}>
-            <motion.div className="card" whileHover={{ y: -4 }}>
-              <div className="row"><Avatar name={t.full_name} /><div style={{ flex: 1 }}><strong>{t.full_name}</strong><div className="small muted">@{t.username} · {t.phone || 'sin teléfono'}</div></div></div>
-              <div className="small" style={{ margin: '10px 0' }}>
+            <motion.div className="card" whileHover={{ y: -4 }} style={{ height: '100%' }}>
+              <div className="row"><Avatar name={t.full_name} /><div style={{ flex: 1 }}><strong>{t.full_name}</strong><div className="small muted">@{t.username}</div></div></div>
+              <div className="col small" style={{ gap: 2, margin: '10px 0' }}>
+                <span>🪪 {t.doc_id || '—'}</span><span>📞 {t.phone || '—'}</span><span>✉️ {t.email || '—'}</span>
+              </div>
+              <div className="small" style={{ marginBottom: 10 }}>
                 {subjects.filter((s) => s.teacher_id === t.id).map((s) => <span key={s.id} className="badge" style={{ margin: 2 }}>{s.name} {groups.find((g) => g.id === s.group_id)?.name}</span>)}
                 {groups.filter((g) => g.director_id === t.id).map((g) => <span key={g.id} className="badge info" style={{ margin: 2 }}>Director {g.name}</span>)}
               </div>
-              <div className="row"><GlowButton size="sm" variant="warn" onClick={() => setPw(t)}>🔑 Contraseña</GlowButton><GlowButton size="sm" variant="bad" onClick={() => del(t)}>Eliminar</GlowButton></div>
+              <div className="row">
+                <GlowButton size="sm" onClick={() => setEdit({ ...t, role: 'teacher' })}>✎ Editar</GlowButton>
+                <GlowButton size="sm" variant="warn" onClick={() => setPw(t)}>🔑</GlowButton>
+                <GlowButton size="sm" variant="bad" onClick={() => del(t)}>✕</GlowButton>
+              </div>
             </motion.div>
           </StaggerItem>
         ))}</Stagger>
       )}
-      <Modal open={open} onClose={() => setOpen(false)} title="Crear docente">
-        <form className="form" onSubmit={create}>
-          <Field label="Nombre completo" className="full"><input name="name" required /></Field>
-          <Field label="Documento"><input name="doc" /></Field>
-          <Field label="Teléfono"><input name="phone" type="tel" /></Field>
-          <Field label="Correo"><input name="email" type="email" /></Field>
-          <Field label="Usuario"><input name="username" required pattern="[a-zA-Z0-9._\-]{3,40}" autoComplete="off" /></Field>
-          <Field label="Contraseña"><input name="password" type="password" required minLength={4} autoComplete="new-password" /></Field>
-          <div className="full row" style={{ justifyContent: 'flex-end' }}><GlowButton variant="solid" type="submit">Crear</GlowButton></div>
-        </form>
-      </Modal>
+      <UserForm user={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); reload(); }} />
       <ResetPassword user={pw} onClose={() => setPw(null)} />
+    </>
+  );
+}
+
+// Crear / editar cualquier usuario (docente, padre, vigilante). Para docentes permite asignar asignaturas y dirección de grupo.
+export function UserForm({ user, onClose, onSaved }) {
+  const { subjects, groups, groupById } = useData();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [subs, setSubs] = useState([]);
+  const [dirs, setDirs] = useState([]);
+  const isEdit = !!user?.id;
+  const isTeacher = user?.role === 'teacher';
+  const key = user ? user.id || 'new-' + user.role : null;
+  useEffect(() => {
+    if (!user) return;
+    setSubs(subjects.filter((s) => user.id && s.teacher_id === user.id).map((s) => s.id));
+    setDirs(groups.filter((g) => user.id && g.director_id === user.id).map((g) => g.id));
+  }, [key]); // eslint-disable-line
+  const TITLE = { teacher: 'docente', parent: 'padre de familia', guard: 'vigilante' };
+
+  const submit = async (e) => {
+    e.preventDefault(); setBusy(true);
+    const f = Object.fromEntries(new FormData(e.target));
+    try {
+      let uid = user.id;
+      if (isEdit) await rpc('cg_admin_update_user', { uid, p_username: f.username, p_full_name: f.name, p_doc: f.doc || null, p_phone: f.phone || null, p_email: f.email || null });
+      else uid = await rpc('cg_admin_create_user', { p_username: f.username, p_password: f.password, p_role: user.role, p_full_name: f.name, p_doc: f.doc || null, p_phone: f.phone || null, p_email: f.email || null });
+      if (isTeacher) {
+        const prevS = subjects.filter((s) => s.teacher_id === uid).map((s) => s.id);
+        const addS = subs.filter((x) => !prevS.includes(x)), remS = prevS.filter((x) => !subs.includes(x));
+        if (addS.length) await q(supabase.from('subjects').update({ teacher_id: uid }).in('id', addS));
+        if (remS.length) await q(supabase.from('subjects').update({ teacher_id: null }).in('id', remS));
+        const prevG = groups.filter((g) => g.director_id === uid).map((g) => g.id);
+        const addG = dirs.filter((x) => !prevG.includes(x)), remG = prevG.filter((x) => !dirs.includes(x));
+        if (addG.length) await q(supabase.from('groups').update({ director_id: uid }).in('id', addG));
+        if (remG.length) await q(supabase.from('groups').update({ director_id: null }).in('id', remG));
+      }
+      toast(isEdit ? 'Cambios guardados' : `Cuenta de ${TITLE[user.role]} creada`); onSaved(uid);
+    } catch (err) { toast(err); } finally { setBusy(false); }
+  };
+  const toggle = (arr, set, id) => set(arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]);
+
+  return (
+    <Modal open={!!user} onClose={onClose} title={`${isEdit ? 'Editar' : 'Crear'} ${TITLE[user?.role] || 'usuario'}`} wide={isTeacher}>
+      {user && (
+        <form className="col" onSubmit={submit} key={key}>
+          <fieldset><legend>👤 Datos personales</legend>
+            <Field label="Nombre completo"><input name="name" required defaultValue={user.full_name} /></Field>
+            <Field label="Documento"><input name="doc" defaultValue={user.doc_id} /></Field>
+            <Field label="Teléfono"><input name="phone" type="tel" defaultValue={user.phone} /></Field>
+            <Field label="Correo"><input name="email" type="email" defaultValue={user.email} /></Field>
+          </fieldset>
+          <fieldset><legend>🔐 Acceso</legend>
+            <Field label="Usuario"><input name="username" required pattern="[a-zA-Z0-9._\-]{3,40}" autoComplete="off" defaultValue={user.username} /></Field>
+            {!isEdit && <Field label="Contraseña"><input name="password" type="password" required minLength={4} autoComplete="new-password" /></Field>}
+            {isEdit && <p className="small muted" style={{ alignSelf: 'end' }}>La contraseña se cambia con el botón 🔑</p>}
+          </fieldset>
+          {isTeacher && (
+            <fieldset><legend>📚 Carga académica</legend>
+              <div className="full col" style={{ gap: 6 }}>
+                <span className="small muted">Asignaturas que dicta</span>
+                <div className="row">{subjects.map((s) => (
+                  <motion.button type="button" key={s.id} whileTap={{ scale: 0.92 }} className={`gbtn sm ${subs.includes(s.id) ? 'solid' : 'ghost'}`} onClick={() => toggle(subs, setSubs, s.id)}>
+                    {subs.includes(s.id) ? '✓ ' : ''}{s.name} · {groupById[s.group_id]?.name}</motion.button>
+                ))}{!subjects.length && <span className="small muted">Primero cree asignaturas en “Grupos y horarios”.</span>}</div>
+                <span className="small muted" style={{ marginTop: 8 }}>Director(a) de grupo de</span>
+                <div className="row">{groups.map((g) => (
+                  <motion.button type="button" key={g.id} whileTap={{ scale: 0.92 }} className={`gbtn sm ${dirs.includes(g.id) ? 'solid ok' : 'ghost'}`} onClick={() => toggle(dirs, setDirs, g.id)}>{dirs.includes(g.id) ? '✓ ' : ''}{g.name}</motion.button>
+                ))}</div>
+              </div>
+            </fieldset>
+          )}
+          <div className="row" style={{ justifyContent: 'flex-end' }}><GlowButton variant="solid" size="lg" type="submit" disabled={busy}>{busy ? 'Guardando…' : 'Guardar'}</GlowButton></div>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
+// ---------- Padres de familia ----------
+function Parents() {
+  const toast = useToast();
+  const { groups } = useData();
+  const st = useAsync(async () => {
+    const [parents, kids] = await Promise.all([
+      q(supabase.from('profiles').select('*').eq('role', 'parent').order('full_name')),
+      q(supabase.from('students').select('id, parent_id, group_id, profile:profiles!students_id_fkey(full_name)')),
+    ]);
+    return { parents, kids };
+  }, []);
+  const [edit, setEdit] = useState(null);
+  const [pw, setPw] = useState(null);
+  const [search, setSearch] = useState('');
+  const [link, setLink] = useState(null);
+  const del = async (p) => { if (!window.confirm(`¿Eliminar la cuenta de ${p.full_name}? Sus hijos quedarán sin acudiente.`)) return; try { await rpc('cg_admin_delete_user', { uid: p.id }); st.reload(); } catch (e) { toast(e); } };
+  const setParent = async (studentId, parentId) => { try { await q(supabase.from('students').update({ parent_id: parentId }).eq('id', studentId)); st.reload(); } catch (e) { toast(e); } };
+  return (
+    <>
+      <div className="row" style={{ marginBottom: 14 }}>
+        <input placeholder="🔎 Buscar acudiente" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 280 }} />
+        <span className="spacer" /><GlowButton variant="solid" onClick={() => setEdit({ role: 'parent' })}>＋ Crear padre de familia</GlowButton>
+      </div>
+      <Async state={st}>{({ parents, kids }) => {
+        const list = parents.filter((p) => (p.full_name + (p.doc_id || '') + p.username).toLowerCase().includes(search.toLowerCase()));
+        return !list.length ? <Empty icon="👨‍👩‍👧">Sin padres de familia</Empty> : (
+          <Stagger className="grid g3">{list.map((p) => {
+            const children = kids.filter((k) => k.parent_id === p.id);
+            return (
+              <StaggerItem key={p.id}>
+                <motion.div className="card" whileHover={{ y: -4 }} style={{ height: '100%' }}>
+                  <div className="row"><Avatar name={p.full_name} /><div style={{ flex: 1 }}><strong>{p.full_name}</strong><div className="small muted">@{p.username}</div></div></div>
+                  <div className="col small" style={{ gap: 2, margin: '10px 0' }}><span>🪪 {p.doc_id || '—'}</span><span>📞 {p.phone || '—'}</span><span>✉️ {p.email || '—'}</span></div>
+                  <div className="col" style={{ gap: 4, marginBottom: 10 }}>
+                    {children.map((c) => (
+                      <div key={c.id} className="row small"><span className="badge info">🎒 {c.profile.full_name} · {groups.find((g) => g.id === c.group_id)?.name || 'sin grupo'}</span>
+                        <button className="icon-btn" style={{ width: 24, height: 24 }} title="Desvincular" onClick={() => setParent(c.id, null)}>✕</button></div>
+                    ))}
+                    {!children.length && <span className="small muted">Sin estudiantes vinculados</span>}
+                  </div>
+                  <div className="row">
+                    <GlowButton size="sm" onClick={() => setEdit({ ...p })}>✎ Editar</GlowButton>
+                    <GlowButton size="sm" variant="ghost" onClick={() => setLink(p)}>🔗 Vincular hijo</GlowButton>
+                    <GlowButton size="sm" variant="warn" onClick={() => setPw(p)}>🔑</GlowButton>
+                    <GlowButton size="sm" variant="bad" onClick={() => del(p)}>✕</GlowButton>
+                  </div>
+                </motion.div>
+              </StaggerItem>
+            );
+          })}</Stagger>
+        );
+      }}</Async>
+      <UserForm user={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); st.reload(); }} />
+      <ResetPassword user={pw} onClose={() => setPw(null)} />
+      <Modal open={!!link} onClose={() => setLink(null)} title={`Vincular estudiante a ${link?.full_name || ''}`}>
+        <div className="col">
+          {(st.data?.kids || []).filter((k) => k.parent_id !== link?.id).sort((a, b) => a.profile.full_name.localeCompare(b.profile.full_name)).map((k) => (
+            <div key={k.id} className="list-item" style={{ alignItems: 'center' }}>
+              <span style={{ flex: 1 }}>{k.profile.full_name} <span className="small muted">{k.parent_id ? '(tiene otro acudiente)' : ''}</span></span>
+              <GlowButton size="sm" onClick={async () => { await setParent(k.id, link.id); setLink(null); }}>Vincular</GlowButton>
+            </div>
+          ))}
+        </div>
+      </Modal>
     </>
   );
 }
@@ -253,6 +391,7 @@ function Students() {
   const [edit, setEdit] = useState(null);
   const [pw, setPw] = useState(null);
   const st = useAsync(() => q(supabase.from('students').select('*, profile:profiles!students_id_fkey(full_name, username), parent:profiles!students_parent_id_fkey(id, full_name, username, phone, email, doc_id)')), []);
+  const allParents = useAsync(() => q(supabase.from('profiles').select('id, full_name, username').eq('role', 'parent').order('full_name')), []);
   const del = async (s) => { if (!window.confirm(`¿Eliminar a ${s.profile.full_name}?`)) return; try { await rpc('cg_admin_delete_user', { uid: s.id }); st.reload(); } catch (e) { toast(e); } };
   return (
     <>
@@ -284,7 +423,7 @@ function Students() {
           </table></div>
         );
       }}</Async>
-      <StudentForm student={edit} parents={(st.data || []).map((s) => s.parent).filter(Boolean)} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); st.reload(); }} />
+      <StudentForm student={edit} parents={allParents.data || []} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); st.reload(); }} />
       <ResetPassword user={pw} onClose={() => setPw(null)} />
     </>
   );
@@ -306,8 +445,8 @@ export function StudentForm({ student, parents, onClose, onSaved, prefill }) {
     const guardian2 = { name: f.g2name, relation: f.g2relation, doc: f.g2doc, phone: f.g2phone, email: f.g2email, address: f.g2address };
     try {
       if (isEdit) {
-        await q(supabase.from('students').update({ group_id: f.group_id || null, doc_id: f.doc, birth_date: f.birth || null, address: f.address, eps: f.eps, clinic: f.clinic, blood_type: f.blood, guardian2 }).eq('id', student.id));
-        await q(supabase.from('profiles').update({ full_name: f.name, doc_id: f.doc }).eq('id', student.id));
+        await q(supabase.from('students').update({ group_id: f.group_id || null, doc_id: f.doc, birth_date: f.birth || null, address: f.address, eps: f.eps, clinic: f.clinic, blood_type: f.blood, guardian2, parent_id: f.parent_id || null }).eq('id', student.id));
+        await rpc('cg_admin_update_user', { uid: student.id, p_username: f.username, p_full_name: f.name, p_doc: f.doc, p_phone: null, p_email: null });
       } else {
         let parentId = f.parent_existing || null;
         if (parentMode === 'new') {
@@ -330,10 +469,9 @@ export function StudentForm({ student, parents, onClose, onSaved, prefill }) {
             <Field label="Fecha de nacimiento"><input name="birth" type="date" defaultValue={student.birth_date || p.birth_date} /></Field>
             <Field label="Dirección"><input name="address" defaultValue={student.address || p.address} /></Field>
             <Field label="Grupo / grado"><select name="group_id" defaultValue={student.group_id || ''}><option value="">Sin asignar</option>{groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></Field>
-            {!isEdit && <>
-              <Field label="Usuario del estudiante"><input name="username" required pattern="[a-zA-Z0-9._\-]{3,40}" autoComplete="off" /></Field>
-              <Field label="Contraseña del estudiante"><input name="password" type="password" required minLength={4} autoComplete="new-password" /></Field>
-            </>}
+            <Field label="Usuario del estudiante"><input name="username" required pattern="[a-zA-Z0-9._\-]{3,40}" autoComplete="off" defaultValue={student.profile?.username} /></Field>
+            {!isEdit && <Field label="Contraseña del estudiante"><input name="password" type="password" required minLength={4} autoComplete="new-password" /></Field>}
+            {isEdit && <Field label="Acudiente principal"><select name="parent_id" defaultValue={student.parent_id || ''}><option value="">Sin acudiente</option>{uniqParents.map((x) => <option key={x.id} value={x.id}>{x.full_name} (@{x.username})</option>)}</select></Field>}
           </fieldset>
           <fieldset><legend>🏥 Salud</legend>
             <Field label="EPS o seguro médico al que está afiliado"><input name="eps" list="eps-admin" defaultValue={student.eps || p.eps} /><datalist id="eps-admin">{EPS.map((x) => <option key={x} value={x} />)}</datalist></Field>

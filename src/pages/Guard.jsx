@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Html5Qrcode } from 'html5-qrcode';
 import Shell from '../components/Shell.jsx';
 import Chat from '../components/Chat.jsx';
+import { AnnouncementsFeed } from '../components/Announcements.jsx';
 import { supabase, q, rpc } from '../lib/supabase.js';
 import { todayISO, fmtDateTime } from '../lib/dates.js';
 import { Card, GlowButton, Empty, Verdict, useToast, useAsync, Async, Stagger, StaggerItem } from '../components/ui.jsx';
@@ -11,6 +12,7 @@ const NAV = [
   { key: 'verificar', label: 'Verificar salida', icon: '🛡️' },
   { key: 'hoy', label: 'Salidas de hoy', icon: '🚪' },
   { key: 'chat', label: 'Chat', icon: '💬' },
+  { key: 'avisos', label: 'Avisos', icon: '📢' },
 ];
 
 export default function Guard() {
@@ -20,6 +22,7 @@ export default function Guard() {
       {tab === 'verificar' && <Verify />}
       {tab === 'hoy' && <Today />}
       {tab === 'chat' && <Chat />}
+      {tab === 'avisos' && <AnnouncementsFeed />}
     </Shell>
   );
 }

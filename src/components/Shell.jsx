@@ -88,7 +88,7 @@ export default function Shell({ nav, active, onNav, title, subtitle, actions, ch
   );
 }
 
-const ICON = { inasistencia: '🚨', salida: '🚪', chat: '💬', clase: '🎥', matricula: '📝', info: 'ℹ️' };
+const ICON = { inasistencia: '🚨', salida: '🚪', chat: '💬', clase: '🎥', matricula: '📝', info: 'ℹ️', aviso: '📢', examen: '📝' };
 
 function useNotifications() {
   const { profile } = useAuth();

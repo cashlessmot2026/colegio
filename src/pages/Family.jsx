@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 import Shell from '../components/Shell.jsx';
 import Chat from '../components/Chat.jsx';
+import { StudentExams } from './Exams.jsx';
+import { AnnouncementsFeed } from '../components/Announcements.jsx';
 import VirtualClass from '../components/VirtualClass.jsx';
 import { ScheduleGrid, EventsList, DocumentsList } from '../components/Common.jsx';
 import { useAuth, useData, scaleOf } from '../context.jsx';
@@ -17,7 +19,9 @@ import {
 
 const PARENT_NAV = [
   { key: 'resumen', label: 'Resumen', icon: '🏠' },
+  { key: 'avisos', label: 'Avisos', icon: '📢' },
   { key: 'notas', label: 'Notas', icon: '📊' },
+  { key: 'examenes', label: 'Exámenes', icon: '📝' },
   { key: 'boletines', label: 'Boletines', icon: '📑' },
   { key: 'cronograma', label: 'Cronograma', icon: '🗓️' },
   { key: 'ubicacion', label: 'Ubicación', icon: '📍' },
@@ -32,6 +36,7 @@ const PARENT_NAV = [
 const STUDENT_NAV = [
   { key: 'notas', label: 'Mis notas', icon: '📊' },
   { key: 'examenes', label: 'Exámenes', icon: '📝' },
+  { key: 'avisos', label: 'Avisos', icon: '📢' },
   { key: 'clases', label: 'Clase virtual', icon: '🎥' },
   { key: 'cronograma', label: 'Agenda', icon: '🗓️' },
   { key: 'horario', label: 'Horario', icon: '⏰' },
@@ -70,7 +75,8 @@ export default function Family() {
           <>
             {tab === 'resumen' && <Summary child={child} d={data} go={setTab} />}
             {tab === 'notas' && <GradesBySubject d={data} />}
-            {tab === 'examenes' && <Exams d={data} />}
+            {tab === 'examenes' && <Exams d={data} child={child} canTake={isStudent} />}
+            {tab === 'avisos' && <AnnouncementsFeed />}
             {tab === 'boletines' && <Bulletins child={child} d={data} />}
             {tab === 'cronograma' && <WeeklyPlan d={data} />}
             {tab === 'ubicacion' && <Location d={data} child={child} />}
@@ -140,6 +146,7 @@ function Summary({ child, d, go }) {
         <Kpi icon="🚨" label="Inasistencias" value={absences} delay={0.1} />
         <Kpi icon="📚" label="Asignaturas" value={d.subjects.length} delay={0.15} />
       </div>
+      <AnnouncementsFeed limit={2} />
       <Card glow title="📍 ¿Dónde está ahora?" actions={<GlowButton size="sm" onClick={() => go('ubicacion')}>Ver detalle</GlowButton>}>
         {now ? (
           <div className="row"><span style={{ fontSize: 34 }}>🏫</span>
@@ -213,7 +220,7 @@ function GradesBySubject({ d }) {
   );
 }
 
-function Exams({ d }) {
+function Exams({ d, child, canTake }) {
   const { subjectById } = useData();
   const exams = d.tasks.filter((t) => t.kind === 'examen');
   const today = todayISO();
@@ -230,9 +237,12 @@ function Exams({ d }) {
     );
   };
   return (
-    <div className="grid g2">
+    <div className="col" style={{ gap: 18 }}>
+      <Card glow title="📝 Exámenes en línea"><StudentExams studentId={child.id} canTake={canTake} /></Card>
+      <div className="grid g2">
       <Card title="Próximos exámenes">{upcoming.length ? <Stagger>{upcoming.map(row)}</Stagger> : <Empty icon="🎉">No hay exámenes programados</Empty>}</Card>
       <Card title="Exámenes presentados">{past.length ? <Stagger>{past.map(row)}</Stagger> : <Empty icon="📝">Aún no hay resultados</Empty>}</Card>
+      </div>
     </div>
   );
 }

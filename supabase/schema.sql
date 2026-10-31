@@ -607,12 +607,295 @@ create trigger message_notify after insert on public.messages
   for each row execute function public.cg_trg_message_notify();
 
 -- ---------------------------------------------------------------------
+-- COMUNICADOS (cierres, actividades, publicidad) Y EXÁMENES EN LÍNEA
+-- ---------------------------------------------------------------------
+create table if not exists public.announcements (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  body text,
+  kind text default 'general' check (kind in ('cierre','actividad','publicidad','general')),
+  images jsonb default '[]'::jsonb,     -- [{path, name}]
+  links jsonb default '[]'::jsonb,      -- [{label, url}]
+  roles text[] not null default array['parent','student','teacher'],
+  event_date date,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.exams (
+  id uuid primary key default gen_random_uuid(),
+  subject_id uuid not null references public.subjects(id) on delete cascade,
+  title text not null,
+  instructions text,
+  period int default 1 check (period between 1 and 4),
+  opens_at timestamptz,
+  closes_at timestamptz,
+  duration_min int,                                   -- null = sin límite
+  show_results text default 'inmediato' check (show_results in ('inmediato','revision')),
+  allow_edit boolean default true,                    -- false = cada respuesta confirmada queda bloqueada
+  published boolean default false,
+  task_id uuid references public.tasks(id) on delete set null,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.exam_questions (
+  id uuid primary key default gen_random_uuid(),
+  exam_id uuid not null references public.exams(id) on delete cascade,
+  position int default 0,
+  kind text not null check (kind in ('unica','multiple','cuaderno')),
+  prompt text not null,
+  options jsonb default '[]'::jsonb,                  -- ["opción A", "opción B", …]
+  correct jsonb default '[]'::jsonb,                  -- índices correctos [0, 2]
+  justify boolean default false,                      -- selección + justificación en cuaderno
+  points numeric default 1
+);
+
+create table if not exists public.exam_attempts (
+  id uuid primary key default gen_random_uuid(),
+  exam_id uuid not null references public.exams(id) on delete cascade,
+  student_id uuid not null references public.students(id) on delete cascade,
+  started_at timestamptz default now(),
+  submitted_at timestamptz,
+  status text default 'en_curso' check (status in ('en_curso','pendiente','calificado')),
+  answers jsonb default '{}'::jsonb,                  -- {qid: {choice:[…], pages:[dataURL…], locked}}
+  details jsonb default '{}'::jsonb,                  -- {qid: {auto_ok, points, pending}}
+  manual jsonb default '{}'::jsonb,                   -- {qid: puntos asignados por el docente}
+  feedback text,
+  auto_score numeric,
+  score numeric,
+  max_score numeric,
+  grade numeric,
+  unique (exam_id, student_id)
+);
+
+-- convierte una fracción 0..1 a la escala de la asignatura (1-5, 1-10, 0-100)
+create or replace function public.cg_scale_value(p_subject uuid, frac numeric) returns numeric
+language plpgsql stable security definer set search_path = public as $$
+declare g jsonb; sc text; mn numeric; mx numeric;
+begin
+  select value into g from cg_settings where key = 'grading';
+  sc := coalesce(case when coalesce((g->>'teacher_can_choose')::boolean, false) then (select scale from subjects where id = p_subject) end, g->>'scale', '1-5');
+  if sc = '1-10' then mn := 1; mx := 10; elsif sc = '0-100' then mn := 0; mx := 100; else mn := 1; mx := 5; end if;
+  return round(mn + greatest(0, least(1, frac)) * (mx - mn), case when sc = '0-100' then 0 else 1 end);
+end $$;
+
+create or replace function public._cg_exam_write_grade(a public.exam_attempts) returns void
+language plpgsql security definer set search_path = public as $$
+declare e record; v numeric;
+begin
+  select * into e from exams where id = a.exam_id;
+  if a.max_score is null or a.max_score = 0 then return; end if;
+  v := public.cg_scale_value(e.subject_id, a.score / a.max_score);
+  update exam_attempts set grade = v where id = a.id;
+  if e.task_id is not null then
+    insert into grades (task_id, student_id, value, comment, updated_at)
+    values (e.task_id, a.student_id, v, 'Examen en línea: ' || a.score || ' / ' || a.max_score || ' puntos', now())
+    on conflict (task_id, student_id) do update set value = excluded.value, comment = excluded.comment, updated_at = now();
+  end if;
+end $$;
+revoke all on function public._cg_exam_write_grade from public, anon, authenticated;
+
+create or replace function public._cg_exam_can_take(p_exam uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from exams e join subjects sb on sb.id = e.subject_id join students s on s.group_id = sb.group_id
+                 where e.id = p_exam and e.published and s.id = auth.uid())
+$$;
+
+-- lista de exámenes del estudiante (o del hijo, para el padre) con su estado; sin respuestas correctas
+create or replace function public.cg_my_exams(p_student uuid default null)
+returns table (id uuid, subject_id uuid, title text, instructions text, period int, opens_at timestamptz, closes_at timestamptz,
+  duration_min int, show_results text, allow_edit boolean, questions int, status text, score numeric, max_score numeric, grade numeric, submitted_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select e.id, e.subject_id, e.title, e.instructions, e.period, e.opens_at, e.closes_at, e.duration_min, e.show_results, e.allow_edit,
+    (select count(*)::int from exam_questions q where q.exam_id = e.id),
+    coalesce(a.status, 'sin_iniciar'),
+    case when a.status = 'calificado' or (e.show_results = 'inmediato' and a.submitted_at is not null) then coalesce(a.score, a.auto_score) end,
+    case when a.submitted_at is not null then a.max_score end,
+    case when a.status = 'calificado' then a.grade end,
+    a.submitted_at
+  from exams e
+  join subjects sb on sb.id = e.subject_id
+  join students s on s.group_id = sb.group_id and s.id = coalesce(p_student, auth.uid())
+  left join exam_attempts a on a.exam_id = e.id and a.student_id = s.id
+  where e.published and s.id in (select public.cg_my_children())
+  order by coalesce(e.opens_at, e.created_at) desc
+$$;
+
+-- inicia (o retoma) el examen; devuelve las preguntas SIN las respuestas correctas
+create or replace function public.cg_exam_start(p_exam uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare e record; a record;
+begin
+  if not public._cg_exam_can_take(p_exam) then raise exception 'Este examen no está disponible para ti'; end if;
+  select * into e from exams where id = p_exam;
+  select * into a from exam_attempts where exam_id = p_exam and student_id = auth.uid();
+  if a.id is null then
+    if e.opens_at is not null and now() < e.opens_at then raise exception 'El examen abre el %', to_char(e.opens_at at time zone 'America/Bogota', 'DD/MM/YYYY HH24:MI'); end if;
+    if e.closes_at is not null and now() > e.closes_at then raise exception 'El examen ya cerró'; end if;
+    insert into exam_attempts (exam_id, student_id) values (p_exam, auth.uid()) returning * into a;
+  end if;
+  return jsonb_build_object(
+    'exam', jsonb_build_object('id', e.id, 'title', e.title, 'instructions', e.instructions, 'duration_min', e.duration_min,
+      'allow_edit', e.allow_edit, 'show_results', e.show_results, 'closes_at', e.closes_at),
+    'attempt', jsonb_build_object('id', a.id, 'started_at', a.started_at, 'submitted_at', a.submitted_at, 'status', a.status, 'answers', a.answers,
+      'deadline', case when e.duration_min is not null then a.started_at + make_interval(mins => e.duration_min) end),
+    'questions', coalesce((select jsonb_agg(jsonb_build_object('id', q.id, 'kind', q.kind, 'prompt', q.prompt, 'options', q.options,
+      'justify', q.justify, 'points', q.points, 'multi', jsonb_array_length(q.correct) > 1 or q.kind = 'multiple') order by q.position)
+      from exam_questions q where q.exam_id = p_exam), '[]'::jsonb));
+end $$;
+
+create or replace function public.cg_exam_save_answer(p_exam uuid, p_question uuid, p_answer jsonb, p_final boolean default false)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare e record; a record; prev jsonb;
+begin
+  select * into e from exams where id = p_exam;
+  select * into a from exam_attempts where exam_id = p_exam and student_id = auth.uid();
+  if a.id is null then raise exception 'Primero inicia el examen'; end if;
+  if a.submitted_at is not null then raise exception 'El examen ya fue entregado'; end if;
+  if e.duration_min is not null and now() > a.started_at + make_interval(mins => e.duration_min + 1) then raise exception 'Se agotó el tiempo del examen'; end if;
+  if e.closes_at is not null and now() > e.closes_at + interval '1 minute' then raise exception 'El examen ya cerró'; end if;
+  if not exists (select 1 from exam_questions where id = p_question and exam_id = p_exam) then raise exception 'Pregunta inválida'; end if;
+  if length(p_answer::text) > 4000000 then raise exception 'La respuesta es demasiado grande (reduzca el número de hojas)'; end if;
+  prev := a.answers -> p_question::text;
+  if not e.allow_edit and coalesce((prev->>'locked')::boolean, false) then
+    raise exception 'Esta pregunta ya fue confirmada y el docente no permite modificarla';
+  end if;
+  update exam_attempts set answers = answers || jsonb_build_object(p_question::text, p_answer || jsonb_build_object('locked', (not e.allow_edit) and p_final))
+  where id = a.id;
+  return jsonb_build_object('locked', (not e.allow_edit) and p_final);
+end $$;
+
+-- entrega: califica automáticamente selección única/múltiple; cuaderno y justificadas quedan pendientes del docente
+create or replace function public.cg_exam_submit(p_exam uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare e record; a public.exam_attempts; q record; ans jsonb; ok boolean; mx numeric := 0; auto numeric := 0; pending boolean := false; det jsonb := '{}'::jsonb;
+begin
+  select * into e from exams where id = p_exam;
+  select * into a from exam_attempts where exam_id = p_exam and student_id = auth.uid();
+  if a.id is null then raise exception 'Primero inicia el examen'; end if;
+  if a.submitted_at is not null then return public.cg_exam_result(p_exam, null); end if;
+  for q in select * from exam_questions where exam_id = p_exam order by position loop
+    mx := mx + q.points;
+    ans := a.answers -> q.id::text;
+    if q.kind in ('unica','multiple') then
+      ok := (select coalesce(jsonb_agg(x order by x), '[]'::jsonb) from jsonb_array_elements(coalesce(ans->'choice', '[]'::jsonb)) x)
+          = (select coalesce(jsonb_agg(x order by x), '[]'::jsonb) from jsonb_array_elements(q.correct) x);
+      if q.justify then
+        pending := true;
+        det := det || jsonb_build_object(q.id::text, jsonb_build_object('auto_ok', ok, 'points', null, 'pending', true));
+      else
+        if ok then auto := auto + q.points; end if;
+        det := det || jsonb_build_object(q.id::text, jsonb_build_object('auto_ok', ok, 'points', case when ok then q.points else 0 end, 'pending', false));
+      end if;
+    else
+      pending := true;
+      det := det || jsonb_build_object(q.id::text, jsonb_build_object('auto_ok', null, 'points', null, 'pending', true));
+    end if;
+  end loop;
+  update exam_attempts set submitted_at = now(), details = det, auto_score = auto, max_score = mx,
+    status = case when pending then 'pendiente' else 'calificado' end,
+    score = case when pending then null else auto end
+  where id = a.id returning * into a;
+  if a.status = 'calificado' then perform public._cg_exam_write_grade(a); end if;
+  if pending then
+    insert into notifications (user_id, title, body, kind)
+    select sb.teacher_id, 'Examen por revisar', p.full_name || ' entregó «' || e.title || '» y tiene preguntas por validar', 'examen'
+    from subjects sb, profiles p where sb.id = e.subject_id and p.id = a.student_id and sb.teacher_id is not null;
+  end if;
+  return public.cg_exam_result(p_exam, null);
+end $$;
+
+-- resultado visible para el estudiante o su acudiente (respeta la regla del docente)
+create or replace function public.cg_exam_result(p_exam uuid, p_student uuid default null) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare e record; a record; st uuid := coalesce(p_student, auth.uid()); visible boolean;
+begin
+  if st not in (select public.cg_my_children()) then raise exception 'No autorizado'; end if;
+  select * into e from exams where id = p_exam;
+  select * into a from exam_attempts where exam_id = p_exam and student_id = st;
+  if a.id is null or a.submitted_at is null then return jsonb_build_object('status', coalesce(a.status, 'sin_iniciar')); end if;
+  visible := a.status = 'calificado' or e.show_results = 'inmediato';
+  return jsonb_build_object(
+    'status', a.status, 'visible', visible, 'submitted_at', a.submitted_at, 'feedback', a.feedback,
+    'auto_score', case when visible then a.auto_score end, 'score', case when visible then a.score end,
+    'max_score', a.max_score, 'grade', case when a.status = 'calificado' then a.grade end,
+    'questions', coalesce((select jsonb_agg(jsonb_build_object(
+        'id', q.id, 'kind', q.kind, 'prompt', q.prompt, 'options', q.options, 'justify', q.justify, 'points', q.points,
+        'answer', a.answers -> q.id::text,
+        'correct', case when visible and (a.status = 'calificado' or not q.justify) and q.kind <> 'cuaderno' then q.correct end,
+        'auto_ok', case when visible then a.details -> q.id::text -> 'auto_ok' end,
+        'pending', a.status <> 'calificado' and coalesce((a.details -> q.id::text ->> 'pending')::boolean, false),
+        'earned', case when a.status = 'calificado' then coalesce((a.manual ->> q.id::text)::numeric, (a.details -> q.id::text ->> 'points')::numeric, 0)
+                       when visible and not coalesce((a.details -> q.id::text ->> 'pending')::boolean, false) then (a.details -> q.id::text ->> 'points')::numeric end
+      ) order by q.position) from exam_questions q where q.exam_id = p_exam), '[]'::jsonb));
+end $$;
+
+-- el docente valida las preguntas pendientes y cierra la calificación
+create or replace function public.cg_exam_grade(p_attempt uuid, p_manual jsonb, p_feedback text) returns numeric
+language plpgsql security definer set search_path = public as $$
+declare a public.exam_attempts; e record; q record; total numeric := 0;
+begin
+  select * into a from exam_attempts where id = p_attempt;
+  select * into e from exams where id = a.exam_id;
+  if not (public.cg_is_admin() or public.cg_teaches_subject(e.subject_id)) then raise exception 'No autorizado'; end if;
+  if a.submitted_at is null then raise exception 'El estudiante aún no entrega el examen'; end if;
+  for q in select * from exam_questions where exam_id = e.id loop
+    total := total + least(q.points, greatest(0, coalesce((p_manual ->> q.id::text)::numeric, (a.details -> q.id::text ->> 'points')::numeric, 0)));
+  end loop;
+  update exam_attempts set manual = coalesce(p_manual, '{}'::jsonb), feedback = p_feedback, score = total, status = 'calificado'
+  where id = p_attempt returning * into a;
+  perform public._cg_exam_write_grade(a);
+  insert into notifications (user_id, title, body, kind)
+  select uid, 'Examen calificado', '«' || e.title || '»: ' || total || ' / ' || a.max_score || ' puntos', 'examen'
+  from (select a.student_id as uid union select parent_id from students where id = a.student_id) u where uid is not null;
+  return total;
+end $$;
+
+-- el docente puede reabrir un intento (por ejemplo, si hubo un problema de conexión)
+create or replace function public.cg_exam_reset_attempt(p_attempt uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare e record;
+begin
+  select ex.* into e from exams ex join exam_attempts a on a.exam_id = ex.id where a.id = p_attempt;
+  if not (public.cg_is_admin() or public.cg_teaches_subject(e.subject_id)) then raise exception 'No autorizado'; end if;
+  delete from exam_attempts where id = p_attempt;
+end $$;
+
+-- edición completa de usuarios por el colegio (incluye cambio de usuario de acceso)
+create or replace function public.cg_admin_update_user(uid uuid, p_username text, p_full_name text, p_doc text, p_phone text, p_email text)
+returns void language plpgsql security definer set search_path = public, auth as $$
+declare em text := lower(trim(p_username)) || '@colegio.app';
+begin
+  if not public.cg_is_admin() then raise exception 'No autorizado'; end if;
+  if p_username !~ '^[a-zA-Z0-9._-]{3,40}$' then raise exception 'Usuario inválido (3-40 caracteres: letras, números, . _ -)'; end if;
+  if exists (select 1 from auth.users where email = em and id <> uid) then raise exception 'El usuario % ya existe', p_username; end if;
+  update auth.users set email = em, updated_at = now() where id = uid;
+  update auth.identities set identity_data = identity_data || jsonb_build_object('email', em) where user_id = uid and provider = 'email';
+  update profiles set username = lower(trim(p_username)), full_name = p_full_name, doc_id = p_doc, phone = p_phone, email = p_email where id = uid;
+end $$;
+
+-- al publicar un comunicado se notifica a todos los perfiles seleccionados
+create or replace function public.cg_trg_announcement() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into notifications (user_id, title, body, kind)
+  select p.id, case new.kind when 'cierre' then '🏫 ' when 'actividad' then '📅 ' when 'publicidad' then '📣 ' else '📢 ' end || new.title,
+         left(coalesce(new.body, ''), 160), 'aviso'
+  from profiles p where p.role = any(new.roles) and p.id <> coalesce(new.created_by, '00000000-0000-0000-0000-000000000000'::uuid);
+  return new;
+end $$;
+drop trigger if exists announcement_notify on public.announcements;
+create trigger announcement_notify after insert on public.announcements
+  for each row execute function public.cg_trg_announcement();
+
+-- ---------------------------------------------------------------------
 -- RLS
 -- ---------------------------------------------------------------------
 do $$ declare t text;
 begin
   foreach t in array array['profiles','cg_settings','rooms','groups','subjects','schedule','students','tasks','grades',
-    'topics','attendance','events','documents','messages','notifications','exit_permissions','enrollments','class_sessions']
+    'topics','attendance','events','documents','messages','notifications','exit_permissions','enrollments','class_sessions',
+    'announcements','exams','exam_questions','exam_attempts']
   loop
     execute format('alter table public.%I enable row level security', t);
   end loop;
@@ -622,7 +905,8 @@ end $$;
 do $$ declare p record;
 begin
   for p in select policyname, tablename from pg_policies where schemaname = 'public' and tablename = any(array['profiles','cg_settings','rooms','groups','subjects','schedule','students','tasks','grades',
-    'topics','attendance','events','documents','messages','notifications','exit_permissions','enrollments','class_sessions']) loop
+    'topics','attendance','events','documents','messages','notifications','exit_permissions','enrollments','class_sessions',
+    'announcements','exams','exam_questions','exam_attempts']) loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
 end $$;
@@ -716,6 +1000,26 @@ create policy enroll_admin on public.enrollments for all to authenticated using 
 create policy class_select on public.class_sessions for select to authenticated using (teacher_id = auth.uid() or public.cg_is_admin());
 create policy class_update on public.class_sessions for update to authenticated using (teacher_id = auth.uid());
 
+create policy ann_select on public.announcements for select to authenticated using (public.cg_is_admin() or public.cg_my_role() = any(roles));
+create policy ann_admin on public.announcements for all to authenticated using (public.cg_is_admin()) with check (public.cg_is_admin());
+
+create policy exams_select on public.exams for select to authenticated using (
+  public.cg_is_admin() or public.cg_teaches_subject(subject_id)
+  or (published and exists (select 1 from subjects sb join students s on s.group_id = sb.group_id
+                             where sb.id = subject_id and s.id in (select public.cg_my_children())))
+);
+create policy exams_write on public.exams for all to authenticated
+  using (public.cg_is_admin() or public.cg_teaches_subject(subject_id)) with check (public.cg_is_admin() or public.cg_teaches_subject(subject_id));
+
+-- las preguntas (con sus respuestas correctas) sólo las ve el docente; el estudiante las recibe por cg_exam_start
+create policy questions_teacher on public.exam_questions for all to authenticated
+  using (public.cg_is_admin() or exists (select 1 from exams e where e.id = exam_id and public.cg_teaches_subject(e.subject_id)))
+  with check (public.cg_is_admin() or exists (select 1 from exams e where e.id = exam_id and public.cg_teaches_subject(e.subject_id)));
+
+-- los intentos sólo los ve el docente; estudiante y acudiente usan cg_my_exams / cg_exam_result
+create policy attempts_teacher on public.exam_attempts for select to authenticated
+  using (public.cg_is_admin() or exists (select 1 from exams e where e.id = exam_id and public.cg_teaches_subject(e.subject_id)));
+
 -- funciones públicas: sólo las de matrícula para anónimos
 -- (por defecto Postgres concede EXECUTE a PUBLIC; se retira y se concede sólo a usuarios autenticados)
 do $$ declare f record;
@@ -731,6 +1035,9 @@ grant execute on function public.cg_enrollment_status(text, text) to anon, authe
 grant execute on function public.cg_enrollment_config() to anon, authenticated;
 revoke all on function public._cg_create_auth_user from public, anon, authenticated;
 revoke all on function public._cg_set_password from public, anon, authenticated;
+revoke all on function public._cg_exam_write_grade from public, anon, authenticated;
+revoke all on function public._cg_exam_can_take from public, anon;
+grant execute on function public._cg_exam_can_take(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------
 -- REALTIME
@@ -739,6 +1046,7 @@ do $$ begin
   begin alter publication supabase_realtime add table public.messages; exception when others then null; end;
   begin alter publication supabase_realtime add table public.notifications; exception when others then null; end;
   begin alter publication supabase_realtime add table public.attendance; exception when others then null; end;
+  begin alter publication supabase_realtime add table public.announcements; exception when others then null; end;
 end $$;
 
 -- ---------------------------------------------------------------------
@@ -746,7 +1054,8 @@ end $$;
 -- ---------------------------------------------------------------------
 insert into storage.buckets (id, name, public) values
   ('colegio-documentos','colegio-documentos', false), ('colegio-tareas','colegio-tareas', false), ('colegio-chat','colegio-chat', false),
-  ('colegio-clases','colegio-clases', false), ('colegio-matriculas','colegio-matriculas', false)
+  ('colegio-clases','colegio-clases', false), ('colegio-matriculas','colegio-matriculas', false),
+  ('colegio-comunicados','colegio-comunicados', false)
 on conflict (id) do nothing;
 
 do $$ declare p record;
@@ -757,9 +1066,9 @@ begin
 end $$;
 
 create policy colegio_read on storage.objects for select to authenticated
-  using (bucket_id in ('colegio-documentos','colegio-tareas','colegio-chat','colegio-clases') or (bucket_id = 'colegio-matriculas' and public.cg_is_admin()));
+  using (bucket_id in ('colegio-documentos','colegio-tareas','colegio-chat','colegio-clases','colegio-comunicados') or (bucket_id = 'colegio-matriculas' and public.cg_is_admin()));
 create policy colegio_docs_write on storage.objects for insert to authenticated
-  with check (bucket_id = 'colegio-documentos' and public.cg_is_admin());
+  with check (bucket_id in ('colegio-documentos','colegio-comunicados') and public.cg_is_admin());
 create policy colegio_tasks_write on storage.objects for insert to authenticated
   with check (bucket_id = 'colegio-tareas' and public.cg_my_role() in ('teacher','admin'));
 create policy colegio_chat_write on storage.objects for insert to authenticated

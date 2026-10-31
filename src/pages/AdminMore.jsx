@@ -11,7 +11,7 @@ import {
 import { ScheduleGrid, EventsList, DocumentsList } from '../components/Common.jsx';
 import SignaturePad from '../components/SignaturePad.jsx';
 import { EventForm } from './Teacher.jsx';
-import { StudentForm, ResetPassword } from './Admin.jsx';
+import { StudentForm, ResetPassword, UserForm } from './Admin.jsx';
 
 const confirmDel = (what) => window.confirm(`¿Eliminar ${what}? Esta acción no se puede deshacer.`);
 const COLORS = ['#7c5cff', '#00e5ff', '#3ddc97', '#ffb547', '#ff4d6d', '#f72585', '#4cc9f0', '#b5179e', '#90be6d', '#f9844a'];
@@ -133,15 +133,30 @@ function ScheduleEditor() {
   const crud = useCrud('schedule');
   const toast = useToast();
   const [g, setG] = useState(groups[0]?.id || '');
-  const [f, setF] = useState({ day: 1, start_time: '07:00', end_time: '08:00', subject_id: '', room_id: '' });
+  const blank = { day: 1, start_time: '07:00', end_time: '08:00', subject_id: '', room_id: '' };
+  const [f, setF] = useState(blank);
+  const [editing, setEditing] = useState(null);
   const blocks = schedule.filter((b) => b.group_id === g);
   const subs = subjects.filter((s) => s.group_id === g);
+  const validate = (x, selfId) => {
+    if (x.end_time <= x.start_time) return 'La hora final debe ser mayor a la inicial';
+    const overlap = (b) => b.id !== selfId && b.day === Number(x.day) && fmtTime(b.start_time) < x.end_time && fmtTime(b.end_time) > x.start_time;
+    if (x.room_id && schedule.find((b) => overlap(b) && b.room_id === x.room_id && b.group_id !== g)) return `El salón ${roomById[x.room_id]?.name} ya está ocupado por otro grupo en ese horario`;
+    if (schedule.find((b) => overlap(b) && b.group_id === g)) return 'El grupo ya tiene otra clase en ese horario';
+    const teacher = subjectById[x.subject_id]?.teacher_id;
+    if (teacher && schedule.find((b) => overlap(b) && subjectById[b.subject_id]?.teacher_id === teacher)) return 'El docente ya tiene clase con otro grupo en ese horario';
+    return null;
+  };
   const add = async (e) => {
     e.preventDefault();
-    if (f.end_time <= f.start_time) return toast(new Error('La hora final debe ser mayor a la inicial'));
-    const clash = schedule.find((b) => b.room_id === f.room_id && b.day === Number(f.day) && b.group_id !== g && fmtTime(b.start_time) < f.end_time && fmtTime(b.end_time) > f.start_time);
-    if (clash) return toast(new Error(`El salón ${roomById[f.room_id]?.name} ya está ocupado por otro grupo en ese horario`));
-    await crud.save({ group_id: g, day: Number(f.day), start_time: f.start_time, end_time: f.end_time, subject_id: f.subject_id, room_id: f.room_id || null });
+    const err = validate(f); if (err) return toast(new Error(err));
+    if (await crud.save({ group_id: g, day: Number(f.day), start_time: f.start_time, end_time: f.end_time, subject_id: f.subject_id, room_id: f.room_id || null })) setF({ ...blank, day: f.day, start_time: f.end_time });
+  };
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    const x = { ...editing, start_time: fmtTime(editing.start_time), end_time: fmtTime(editing.end_time) };
+    const err = validate(x, x.id); if (err) return toast(new Error(err));
+    if (await crud.save({ id: x.id, group_id: x.group_id, day: Number(x.day), start_time: x.start_time, end_time: x.end_time, subject_id: x.subject_id, room_id: x.room_id || null })) setEditing(null);
   };
   if (!groups.length) return <Empty icon="⏰">Primero cree grupos, salones y asignaturas</Empty>;
   return (
@@ -161,10 +176,28 @@ function ScheduleEditor() {
       {blocks.length > 0 && (
         <Card title="Bloques">
           <div className="table-wrap"><table><thead><tr><th>Día</th><th>Hora</th><th>Asignatura</th><th>Salón</th><th></th></tr></thead>
-            <tbody>{blocks.map((b) => <tr key={b.id}><td>{DAYS[b.day]}</td><td>{fmtTime(b.start_time)}–{fmtTime(b.end_time)}</td><td>{subjectById[b.subject_id]?.name}</td><td>{roomById[b.room_id]?.name || '—'}</td><td><button className="icon-btn" onClick={() => crud.del(b.id)}>✕</button></td></tr>)}</tbody>
+            <tbody>{blocks.map((b) => (
+              <tr key={b.id}><td>{DAYS[b.day]}</td><td>{fmtTime(b.start_time)}–{fmtTime(b.end_time)}</td><td>{subjectById[b.subject_id]?.name}</td><td>{roomById[b.room_id]?.name || '—'}</td>
+                <td><div className="row" style={{ flexWrap: 'nowrap' }}>
+                  <GlowButton size="sm" variant="ghost" onClick={() => setEditing({ ...b, room_id: b.room_id || '' })}>✎ Editar</GlowButton>
+                  <button className="icon-btn" onClick={() => confirmDel('este bloque') && crud.del(b.id)}>✕</button>
+                </div></td></tr>
+            ))}</tbody>
           </table></div>
         </Card>
       )}
+      <Modal open={!!editing} onClose={() => setEditing(null)} title="Editar bloque de clase">
+        {editing && (
+          <form className="form" onSubmit={saveEdit}>
+            <Field label="Día"><select value={editing.day} onChange={(e) => setEditing({ ...editing, day: e.target.value })}>{[1, 2, 3, 4, 5, 6].map((d) => <option key={d} value={d}>{DAYS[d]}</option>)}</select></Field>
+            <Field label="Inicio"><input type="time" required value={fmtTime(editing.start_time)} onChange={(e) => setEditing({ ...editing, start_time: e.target.value })} /></Field>
+            <Field label="Fin"><input type="time" required value={fmtTime(editing.end_time)} onChange={(e) => setEditing({ ...editing, end_time: e.target.value })} /></Field>
+            <Field label="Asignatura"><select required value={editing.subject_id} onChange={(e) => setEditing({ ...editing, subject_id: e.target.value })}>{subs.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
+            <Field label="Salón físico"><select value={editing.room_id} onChange={(e) => setEditing({ ...editing, room_id: e.target.value })}><option value="">Sin salón</option>{rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></Field>
+            <div className="full row" style={{ justifyContent: 'flex-end' }}><GlowButton variant="solid" type="submit">Guardar cambios</GlowButton></div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -330,15 +363,10 @@ export function Security() {
   const guards = useAsync(() => q(supabase.from('profiles').select('*').eq('role', 'guard')), []);
   const exits = useAsync(() => q(supabase.from('exit_permissions').select('*, student:students(doc_id, profile:profiles!students_id_fkey(full_name)), requester:profiles!exit_permissions_requested_by_fkey(full_name)').gte('valid_date', todayISO()).order('created_at', { ascending: false })), []);
   const students = useAsync(() => q(supabase.from('students').select('id, doc_id, profile:profiles!students_id_fkey(full_name)')), []);
-  const [newGuard, setNewGuard] = useState(false);
+  const [guardEdit, setGuardEdit] = useState(null);
   const [pw, setPw] = useState(null);
   const [auth, setAuth] = useState(false);
   const link = `${location.origin}${import.meta.env.BASE_URL}#/vigilante`;
-
-  const createGuard = async (e) => {
-    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
-    try { await rpc('cg_admin_create_user', { p_username: f.username, p_password: f.password, p_role: 'guard', p_full_name: f.name, p_doc: f.doc, p_phone: f.phone, p_email: null }); setNewGuard(false); guards.reload(); toast('Vigilante creado'); } catch (err) { toast(err); }
-  };
   const authorize = async (e) => {
     e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
     try { await q(supabase.from('exit_permissions').insert({ student_id: f.student, requested_by: profile.id, requester_role: 'colegio', reason: f.reason, pickup_person: f.pickup, valid_date: f.date })); setAuth(false); exits.reload(); toast('Salida autorizada'); } catch (err) { toast(err); }
@@ -358,9 +386,10 @@ export function Security() {
             </div>
           </div>
         </Card>
-        <Card title="Personal de vigilancia" actions={<GlowButton size="sm" variant="solid" onClick={() => setNewGuard(true)}>＋ Crear</GlowButton>}>
+        <Card title="Personal de vigilancia" actions={<GlowButton size="sm" variant="solid" onClick={() => setGuardEdit({ role: 'guard' })}>＋ Crear</GlowButton>}>
           <Async state={guards}>{(list) => !list.length ? <Empty icon="🛡️">Sin vigilantes</Empty> : list.map((g) => (
-            <div key={g.id} className="list-item" style={{ alignItems: 'center', marginBottom: 6 }}><Avatar name={g.full_name} size={32} /><div style={{ flex: 1 }}><strong>{g.full_name}</strong><div className="small muted">@{g.username}</div></div>
+            <div key={g.id} className="list-item" style={{ alignItems: 'center', marginBottom: 6 }}><Avatar name={g.full_name} size={32} /><div style={{ flex: 1 }}><strong>{g.full_name}</strong><div className="small muted">@{g.username} · {g.phone || 'sin teléfono'}</div></div>
+              <GlowButton size="sm" onClick={() => setGuardEdit({ ...g })}>✎</GlowButton>
               <GlowButton size="sm" variant="warn" onClick={() => setPw(g)}>🔑</GlowButton>
               <GlowButton size="sm" variant="bad" onClick={async () => { if (confirmDel(g.full_name)) { await rpc('cg_admin_delete_user', { uid: g.id }).catch(toast); guards.reload(); } }}>✕</GlowButton></div>
           ))}</Async>
@@ -379,15 +408,7 @@ export function Security() {
           </table></div>
         )}</Async>
       </Card>
-      <Modal open={newGuard} onClose={() => setNewGuard(false)} title="Crear vigilante">
-        <form className="form" onSubmit={createGuard}>
-          <Field label="Nombre" className="full"><input name="name" required /></Field>
-          <Field label="Documento"><input name="doc" /></Field><Field label="Teléfono"><input name="phone" /></Field>
-          <Field label="Usuario"><input name="username" required pattern="[a-zA-Z0-9._\-]{3,40}" /></Field>
-          <Field label="Contraseña"><input name="password" type="password" required minLength={4} autoComplete="new-password" /></Field>
-          <div className="full row" style={{ justifyContent: 'flex-end' }}><GlowButton variant="solid" type="submit">Crear</GlowButton></div>
-        </form>
-      </Modal>
+      <UserForm user={guardEdit} onClose={() => setGuardEdit(null)} onSaved={() => { setGuardEdit(null); guards.reload(); }} />
       <Modal open={auth} onClose={() => setAuth(false)} title="Autorizar salida (colegio)">
         <form className="col" onSubmit={authorize}>
           <Field label="Estudiante"><select name="student" required><option value="">Seleccione…</option>{(students.data || []).sort((a, b) => a.profile.full_name.localeCompare(b.profile.full_name)).map((s) => <option key={s.id} value={s.id}>{s.profile.full_name} · {s.doc_id}</option>)}</select></Field>

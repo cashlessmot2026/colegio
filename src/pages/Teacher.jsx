@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Shell from '../components/Shell.jsx';
 import Chat from '../components/Chat.jsx';
+import { TeacherExams } from './Exams.jsx';
+import { AnnouncementsFeed } from '../components/Announcements.jsx';
 import VirtualClass from '../components/VirtualClass.jsx';
 import { ScheduleGrid, EventsList } from '../components/Common.jsx';
 import { useAuth, useData, scaleOf } from '../context.jsx';
@@ -18,6 +20,8 @@ const NAV = [
   { key: 'asistencia', label: 'Asistencia', icon: '✅' },
   { key: 'reportes', label: 'Reportes', icon: '📄' },
   { key: 'asignaturas', label: 'Asignaturas', icon: '📚' },
+  { key: 'examenes', label: 'Exámenes', icon: '📝' },
+  { key: 'avisos', label: 'Avisos', icon: '📢' },
   { key: 'direccion', label: 'Mi grupo', icon: '🧭' },
   { key: 'clase', label: 'Clase virtual', icon: '🎥' },
   { key: 'agenda', label: 'Actividades', icon: '🚌' },
@@ -56,6 +60,8 @@ export default function Teacher() {
           {tab === 'agenda' && <TeacherEvents {...ctx} />}
           {tab === 'horario' && <Card><ScheduleGrid blocks={myBlocks} showGroup /></Card>}
           {tab === 'chat' && <Chat />}
+          {tab === 'examenes' && <TeacherExams {...ctx} />}
+          {tab === 'avisos' && <AnnouncementsFeed />}
         </>
       )}
     </Shell>
