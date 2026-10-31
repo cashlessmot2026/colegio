@@ -3,3 +3,5 @@ dist
 .env.local
 *.log
 .playwright-mcp
+EduControl-usuarios-demo.xlsx
+NOTAS-PROYECTO.md
