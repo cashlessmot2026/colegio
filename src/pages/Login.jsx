@@ -29,7 +29,7 @@ export default function Login({ mode }) {
           <motion.img src={`${import.meta.env.BASE_URL}icons/icon.svg`} alt="" width="74" style={{ display: 'block', margin: '0 auto 12px' }}
             animate={{ y: [0, -6, 0], filter: ['drop-shadow(0 0 8px #7c5cff)', 'drop-shadow(0 0 22px #00e5ff)', 'drop-shadow(0 0 8px #7c5cff)'] }}
             transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }} />
-          <h1 style={{ textAlign: 'center' }} className="grad-text">{guard ? 'Portería · Vigilancia' : 'Colegio App'}</h1>
+          <h1 style={{ textAlign: 'center' }} className="grad-text">{guard ? 'Portería · Vigilancia' : 'EduControl'}</h1>
           <p className="muted small" style={{ textAlign: 'center', marginTop: 6 }}>
             {guard ? 'Control de salida de estudiantes' : 'Ingrese con el usuario y la contraseña asignados por el colegio'}
           </p>

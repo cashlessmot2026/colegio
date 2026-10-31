@@ -1,4 +1,4 @@
-# Colegio App · PWA de gestión escolar
+# EduControl · PWA de gestión escolar
 
 Aplicación web progresiva (instalable como app en Android, iOS y escritorio). Está hecha con **React + Vite**, animada con **Motion** y usa **Supabase** (Postgres, Auth, Realtime y Storage).
 

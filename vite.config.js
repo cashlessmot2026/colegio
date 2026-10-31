@@ -13,9 +13,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon.svg'],
       manifest: {
-        name: 'Colegio App',
-        short_name: 'Colegio',
-        description: 'Gestión escolar: notas, asistencia, horarios, chat y clases virtuales',
+        name: 'EduControl',
+        short_name: 'EduControl',
+        description: 'EduControl · gestión escolar: notas, asistencia, horarios, chat y clases virtuales',
         lang: 'es-CO',
         start_url: base,
         scope: base,
