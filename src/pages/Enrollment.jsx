@@ -16,7 +16,7 @@ export default function Enrollment() {
   return (
     <div style={{ maxWidth: 920, margin: '0 auto', padding: '24px 16px 60px' }}>
       <motion.div className="row" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ marginBottom: 18 }}>
-        <img src="/icons/icon.svg" width="48" alt="" />
+        <img src={`${import.meta.env.BASE_URL}icons/icon.svg`} width="48" alt="" />
         <div style={{ flex: 1 }}><h1 className="grad-text">Proceso de matrícula</h1><p className="muted small">{cfg?.school || ''}</p></div>
         <a className="small" href="#/">Ingresar a la plataforma →</a>
       </motion.div>

@@ -29,7 +29,7 @@ export default function Shell({ nav, active, onNav, title, subtitle, actions, ch
     <div className="shell">
       <aside className="side">
         <div className="brand">
-          <img src="/icons/icon.svg" alt="" />
+          <img src={`${import.meta.env.BASE_URL}icons/icon.svg`} alt="" />
           <div><strong>{school.name}</strong><div className="small muted">{ROLE_LABEL[profile.role]}</div></div>
         </div>
         <NavList />

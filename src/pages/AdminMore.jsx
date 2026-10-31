@@ -216,7 +216,7 @@ export function Enrollments() {
   const [cfg, setCfg] = useState(settings.enrollment || { open: true, required_docs: [] });
   const [docInput, setDocInput] = useState('');
   const [create, setCreate] = useState(null);
-  const link = `${location.origin}/#/matricula`;
+  const link = `${location.origin}${import.meta.env.BASE_URL}#/matricula`;
 
   const saveCfg = async (next) => {
     setCfg(next);
@@ -333,7 +333,7 @@ export function Security() {
   const [newGuard, setNewGuard] = useState(false);
   const [pw, setPw] = useState(null);
   const [auth, setAuth] = useState(false);
-  const link = `${location.origin}/#/vigilante`;
+  const link = `${location.origin}${import.meta.env.BASE_URL}#/vigilante`;
 
   const createGuard = async (e) => {
     e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));

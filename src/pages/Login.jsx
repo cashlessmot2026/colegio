@@ -26,7 +26,7 @@ export default function Login({ mode }) {
     <div className="login-wrap">
       <motion.div className="login" initial={{ opacity: 0, y: 30, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}>
         <div className="card glow" style={{ padding: 28 }}>
-          <motion.img src="/icons/icon.svg" alt="" width="74" style={{ display: 'block', margin: '0 auto 12px' }}
+          <motion.img src={`${import.meta.env.BASE_URL}icons/icon.svg`} alt="" width="74" style={{ display: 'block', margin: '0 auto 12px' }}
             animate={{ y: [0, -6, 0], filter: ['drop-shadow(0 0 8px #7c5cff)', 'drop-shadow(0 0 22px #00e5ff)', 'drop-shadow(0 0 8px #7c5cff)'] }}
             transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }} />
           <h1 style={{ textAlign: 'center' }} className="grad-text">{guard ? 'Portería · Vigilancia' : 'Colegio App'}</h1>
