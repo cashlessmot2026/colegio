@@ -38,8 +38,16 @@ export function Card({ title, actions, children, glow, className = '', delay = 0
 
 export function Tabs({ tabs, value, onChange }) {
   const id = useId();
+  const box = useRef(null);
+  // la pestaña activa siempre queda visible (en celular la lista se desplaza sola)
+  useEffect(() => {
+    const el = box.current?.querySelector('[aria-selected="true"]');
+    if (el && box.current.scrollWidth > box.current.clientWidth) {
+      box.current.scrollTo({ left: el.offsetLeft - box.current.clientWidth / 2 + el.offsetWidth / 2, behavior: 'smooth' });
+    }
+  }, [value]);
   return (
-    <div className="tabs" role="tablist">
+    <div className="tabs" role="tablist" ref={box}>
       {tabs.map((t) => {
         const key = typeof t === 'string' ? t : t.key;
         const label = typeof t === 'string' ? t : t.label;

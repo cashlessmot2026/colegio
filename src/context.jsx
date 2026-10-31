@@ -30,7 +30,9 @@ export function AuthProvider({ children }) {
     if (!profile) return;
     const check = async () => {
       const n = localStorage.getItem(NONCE_KEY);
-      const ok = n ? await rpc('cg_session_valid', { n }).catch(() => true) : false;
+      // sin marca local todavía (el inicio de sesión aún la está registrando): no se expulsa
+      if (!n) return;
+      const ok = await rpc('cg_session_valid', { n }).catch(() => true);
       if (!ok) { await supabase.auth.signOut(); localStorage.removeItem(NONCE_KEY); setKicked('Su sesión se cerró porque la cuenta se abrió en otro dispositivo o se cambió la contraseña.'); }
     };
     check();

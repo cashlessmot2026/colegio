@@ -142,8 +142,8 @@ export function AdminAnnouncements() {
           <div className="full col" style={{ gap: 6 }}>
             <span className="small muted">Enlaces</span>
             {f.links.map((l, i) => <div key={i} className="row small"><span>🔗 {l.label || l.url}</span><span className="muted">{l.url}</span><button type="button" className="icon-btn" style={{ width: 26, height: 26 }} onClick={() => setF({ ...f, links: f.links.filter((_, j) => j !== i) })}>✕</button></div>)}
-            <div className="row" style={{ flexWrap: 'nowrap' }}>
-              <input placeholder="Texto del botón" value={link.label} onChange={(e) => setLink({ ...link, label: e.target.value })} style={{ maxWidth: 200 }} />
+            <div className="row keep" style={{ flexWrap: 'nowrap' }}>
+              <input placeholder="Texto" value={link.label} onChange={(e) => setLink({ ...link, label: e.target.value })} style={{ maxWidth: 160 }} />
               <input placeholder="https://…" value={link.url} onChange={(e) => setLink({ ...link, url: e.target.value })} />
               <GlowButton type="button" size="sm" onClick={addLink} disabled={!link.url}>＋</GlowButton>
             </div>

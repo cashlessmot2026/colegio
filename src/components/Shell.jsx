@@ -6,6 +6,7 @@ import { systemNotify, askNotificationPermission } from '../lib/notify.js';
 import { fmtDateTime } from '../lib/dates.js';
 import { spring, Modal, GlowButton, useToast, Field, Empty } from './ui.jsx';
 import { rpc } from '../lib/supabase.js';
+import { useDevice } from '../lib/device.js';
 
 const ROLE_LABEL = { admin: 'Administración', teacher: 'Docente', parent: 'Padre de familia', student: 'Estudiante', guard: 'Vigilancia' };
 
@@ -15,15 +16,25 @@ export default function Shell({ nav, active, onNav, title, subtitle, actions, ch
   const { school } = useData();
   const [notifOpen, setNotifOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const { items, unread, markAll, remove } = useNotifications();
+  const dev = useDevice();
+  const go = (k) => { onNav(k); setMoreOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
-  const NavList = ({ mobile }) => nav.map((n) => (
-    <button key={n.key} className={`navbtn ${active === n.key ? 'active' : ''}`} onClick={() => onNav(n.key)}>
+  // En celular la barra inferior muestra 4 accesos (siempre incluye la pestaña activa) + "Más"
+  const PRIMARY = 4;
+  const primary = nav.slice(0, PRIMARY);
+  if (!primary.some((n) => n.key === active)) { const cur = nav.find((n) => n.key === active); if (cur) primary[PRIMARY - 1] = cur; }
+  const inMore = !primary.some((n) => n.key === active);
+
+  const NavBtn = ({ n, mobile }) => (
+    <button key={n.key} className={`navbtn ${active === n.key ? 'active' : ''}`} onClick={() => go(n.key)} title={n.label}>
       {active === n.key && <motion.span layoutId={mobile ? 'nav-m' : 'nav-d'} className="pill" transition={spring} />}
-      <span className="ico">{n.icon}</span><span>{n.label}</span>
+      <span className="ico">{n.icon}</span><span className="lbl">{n.label}</span>
       {n.badge > 0 && <span className="dot badge">{n.badge}</span>}
     </button>
-  ));
+  );
+  const NavList = ({ mobile }) => nav.map((n) => <NavBtn key={n.key} n={n} mobile={mobile} />);
 
   return (
     <div className="shell">
@@ -34,12 +45,12 @@ export default function Shell({ nav, active, onNav, title, subtitle, actions, ch
         </div>
         <NavList />
         <div className="spacer" />
-        <div className="card" style={{ padding: 12 }}>
-          <div className="small muted">Sesión</div>
-          <strong className="small">{profile.full_name}</strong>
+        <div className="card session-card" style={{ padding: 12 }}>
+          <div className="small muted lbl">Sesión</div>
+          <strong className="small lbl">{profile.full_name}</strong>
           <div className="row" style={{ marginTop: 10 }}>
-            {profile.role !== 'student' && <GlowButton size="sm" variant="ghost" onClick={() => setPwOpen(true)}>🔑 Clave</GlowButton>}
-            <GlowButton size="sm" variant="bad" onClick={signOut}>Salir</GlowButton>
+            {profile.role !== 'student' && <GlowButton size="sm" variant="ghost" onClick={() => setPwOpen(true)} title="Cambiar contraseña">🔑<span className="lbl"> Clave</span></GlowButton>}
+            <GlowButton size="sm" variant="bad" onClick={signOut} title="Cerrar sesión">⏻<span className="lbl"> Salir</span></GlowButton>
           </div>
         </div>
       </aside>
@@ -57,7 +68,6 @@ export default function Shell({ nav, active, onNav, title, subtitle, actions, ch
               <motion.span className="dot" style={{ position: 'absolute', top: -6, right: -6 }} initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>{unread}</motion.span>
             )}</AnimatePresence>
           </button>
-          <button className="icon-btn mobile-only" onClick={signOut} title="Cerrar sesión" style={{ display: 'none' }}>⏻</button>
         </div>
         <AnimatePresence mode="wait">
           <motion.div key={active} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
@@ -66,9 +76,48 @@ export default function Shell({ nav, active, onNav, title, subtitle, actions, ch
         </AnimatePresence>
       </main>
 
-      <nav className="bottom-nav"><NavList mobile />
-        <button className="navbtn" onClick={signOut}><span className="ico">⏻</span><span>Salir</span></button>
-      </nav>
+      {dev.mobile && (
+        <nav className="bottom-nav">
+          {primary.map((n) => <NavBtn key={n.key} n={n} mobile />)}
+          <button className={`navbtn ${moreOpen || inMore ? 'active' : ''}`} onClick={() => setMoreOpen(true)} aria-label="Más opciones">
+            <span className="ico">☰</span><span className="lbl">Más</span>
+            {unread > 0 && <span className="dot badge">{unread}</span>}
+          </button>
+        </nav>
+      )}
+
+      {/* Panel "Más": todas las secciones a la vista, sin desplazamientos horizontales ocultos */}
+      <AnimatePresence>
+        {moreOpen && (
+          <motion.div className="sheet-bg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMoreOpen(false)}>
+            <motion.div className="sheet" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 380, damping: 36 }}
+              drag="y" dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.6 }} onDragEnd={(_, i) => i.offset.y > 90 && setMoreOpen(false)}
+              onClick={(e) => e.stopPropagation()}>
+              <div className="sheet-handle" />
+              <div className="row" style={{ marginBottom: 12 }}>
+                <div style={{ flex: 1 }}><strong>{profile.full_name}</strong><div className="small muted">{ROLE_LABEL[profile.role]} · {school.name}</div></div>
+                <button className="icon-btn" onClick={() => setMoreOpen(false)} aria-label="Cerrar">✕</button>
+              </div>
+              <div className="sheet-grid">
+                {nav.map((n, i) => (
+                  <motion.button key={n.key} className={`sheet-item ${active === n.key ? 'on' : ''}`} onClick={() => go(n.key)}
+                    initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.025 }} whileTap={{ scale: 0.92 }}>
+                    <span className="ico">{n.icon}</span><span>{n.label}</span>
+                    {n.badge > 0 && <span className="dot">{n.badge}</span>}
+                  </motion.button>
+                ))}
+                <motion.button className="sheet-item" onClick={() => { setMoreOpen(false); setNotifOpen(true); askNotificationPermission(); }} whileTap={{ scale: 0.92 }}>
+                  <span className="ico">🔔</span><span>Notificaciones</span>{unread > 0 && <span className="dot">{unread}</span>}
+                </motion.button>
+                {profile.role !== 'student' && (
+                  <motion.button className="sheet-item" onClick={() => { setMoreOpen(false); setPwOpen(true); }} whileTap={{ scale: 0.92 }}><span className="ico">🔑</span><span>Cambiar clave</span></motion.button>
+                )}
+                <motion.button className="sheet-item danger" onClick={signOut} whileTap={{ scale: 0.92 }}><span className="ico">⏻</span><span>Cerrar sesión</span></motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <Modal open={notifOpen} onClose={() => { setNotifOpen(false); markAll(); }} title="Notificaciones">
         {items.length === 0 ? <Empty icon="🔕">Sin notificaciones</Empty> : (

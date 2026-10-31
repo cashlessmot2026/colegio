@@ -177,7 +177,7 @@ function ExamEditor({ exam, subjects, onClose }) {
                 <div className="col" style={{ marginTop: 10, gap: 8 }}>
                   <span className="small muted">Marque {x.kind === 'unica' ? 'la respuesta correcta' : 'todas las respuestas correctas'}:</span>
                   {x.options.map((o, k) => (
-                    <div key={k} className="row" style={{ flexWrap: 'nowrap' }}>
+                    <div key={k} className="row keep" style={{ flexWrap: 'nowrap' }}>
                       <motion.button type="button" whileTap={{ scale: 0.85 }} className={`opt-mark ${x.correct.includes(k) ? 'on' : ''} ${x.kind === 'unica' ? 'round' : ''}`} onClick={() => toggleCorrect(i, k)}>{x.correct.includes(k) ? '✓' : letter(k)}</motion.button>
                       <input value={o} placeholder={`Opción ${letter(k)}`} onChange={(e) => upd(i, { options: x.options.map((y, j) => (j === k ? e.target.value : y)) })} />
                       <button className="icon-btn" disabled={x.options.length <= 2} onClick={() => upd(i, { options: x.options.filter((_, j) => j !== k), correct: x.correct.filter((c) => c !== k).map((c) => (c > k ? c - 1 : c)) })}>✕</button>
